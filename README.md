@@ -1,3 +1,3 @@
 EstimationPoker
 ===============
-Swing application for an online estimation of bid entries in lokal network. It uses hazelcas for data sharing.
+Swing application for an online estimation of bid entries in lokal network. It uses hazelcast for data sharing.
