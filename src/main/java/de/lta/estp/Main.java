@@ -15,6 +15,10 @@
  */
 package de.lta.estp;
 
+import com.hazelcast.client.HazelcastClient;
+import com.hazelcast.client.config.ClientConfig;
+import com.hazelcast.client.config.ClientNetworkConfig;
+import com.hazelcast.config.JoinConfig;
 import com.hazelcast.core.*;
 import de.lta.estp.data.BidEntry;
 
@@ -24,21 +28,34 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.io.File;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+import java.util.Properties;
 
 
 public class Main {
+    public static final String SETTINGS_FILE = "server.properties";
+    public static final String P_SERVER_USER = "server.user";
+    public static final String P_SERVER_IP = "server.ip";
+
 	private JFrame frame;
 	private JPanel contentPanel;
 	private JLabel title;
 	private MainTable table;
 	private MainTableModel   tableModel;
 
+    private Mode mode = Mode.CLIENT;
     private HazelcastInstance hazelcast;
-    private com.hazelcast.core.Member myMember;
     private IMap<Long, BidEntry> bidEntries;
     private IMap<Long, de.lta.estp.data.Member> members;
     private IMap<String,Double> offers;
     de.lta.estp.data.Member currentMember;
+    Properties settings = new Properties();
+
 	/**
 	 * Launch the application.
 	 */
@@ -56,9 +73,18 @@ public class Main {
 		});
 	}
 
-	private void initializeHC(){
-        hazelcast= Hazelcast.newHazelcastInstance(null);
-        myMember = hazelcast.getCluster().getLocalMember();
+    private void initializeHC(){
+        loadSettings();
+
+        if(mode == Mode.SERVER) {
+            hazelcast = Hazelcast.newHazelcastInstance();
+        }else {
+            ClientConfig cfg = new ClientConfig();
+            ClientNetworkConfig network = cfg.getNetworkConfig();
+            network.addAddress(settings.getProperty(P_SERVER_IP));
+            hazelcast = HazelcastClient.newHazelcastClient(cfg);
+        }
+
         bidEntries = hazelcast.getMap("estpApp-bidEntries");
         members = hazelcast.getMap("estpApp-members");
         offers =  hazelcast.getMap("estpApp-offers");
@@ -77,9 +103,15 @@ public class Main {
         frame.addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent e) {
-                currentMember.setOnline(false);
-                members.put(currentMember.getId(), currentMember);
-                System.exit(0);
+                try {
+                    if (mode == Mode.SERVER) {
+                        new File(SETTINGS_FILE).delete();
+                    }
+                    currentMember.setOnline(false);
+                    members.put(currentMember.getId(), currentMember);
+                }finally {
+                    System.exit(0);
+                }
             }
         });
 		contentPanel = new JPanel(new BorderLayout(0,0));
@@ -124,7 +156,7 @@ public class Main {
         de.lta.estp.data.Member newBider = new de.lta.estp.data.Member(id, userName);
         members.put(id, newBider);
 
-        frame.setTitle(userName);
+        frame.setTitle(userName + " " + (mode==Mode.SERVER?"Server":""));
         return newBider;
     }
 
@@ -289,4 +321,29 @@ public class Main {
 
         }
     }
+
+    private void loadSettings(){
+        try {
+            settings.load(new FileReader(SETTINGS_FILE));
+        } catch (IOException e) {
+        }
+        if(settings.isEmpty()){
+            mode = Mode.SERVER;
+            settings.setProperty(P_SERVER_USER,System.getProperty("user.name"));
+            settings.setProperty(P_SERVER_IP,getIp());
+            try {
+                settings.store(new FileWriter(SETTINGS_FILE),"Estimation poker server");
+            } catch (IOException e) {
+            }
+        }
+    }
+
+    private String getIp(){
+        try {
+            return InetAddress.getLocalHost().getHostAddress();
+        } catch (UnknownHostException e) {
+        }
+        return null;
+    }
+
 }
